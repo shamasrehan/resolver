@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solidity Contract Assistant</title>
+  
+  <!-- Prism.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/themes/prism.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/components/prism-solidity.min.js"></script>
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+  <!-- TOP HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <!-- Demo Logo -->
+      <i class="fas fa-cube"></i>
+      <span class="header-logo-text">Demo Logo</span>
+    </div>
+    <div class="header-right">
+      <button class="connect-btn">Connect / Sign In</button>
+    </div>
+  </div>
+
+  <!-- Left Collapsible Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <ul class="menu">
+      <li class="menu-item active" onclick="showPanel('generatorPanel', event)">
+        <i class="fas fa-magic"></i> Contract Generator
+      </li>
+      <li class="menu-item" onclick="showPanel('examplePanel1', event)">
+        <i class="fas fa-users"></i> My Agents
+      </li>
+      <li class="menu-item" onclick="showPanel('examplePanel2', event)">
+        <i class="fas fa-robot"></i> My Oracles
+      </li>
+    </ul>
+    <!-- Collapse Button -->
+    <button class="collapse-btn" onclick="toggleSidebar()">
+      <i class="fas fa-bars"></i>
+    </button>
+  </div>
+  
+  <!-- Main Content Panels -->
+  <div class="generator-panel" id="generatorPanel">
+    <!-- Left half: Approval/Preview Section -->
+    <div class="approval-section" id="approvalSection">
+      <div class="tab-container">
+        <div class="tabs">
+          <button class="tab-button active" onclick="switchTab('contract-preview')">Contract Preview</button>
+          <button class="tab-button" onclick="switchTab('my-contracts')">My Contracts</button>
+          <button class="tab-button" onclick="switchTab('audit-report')">Audit Report</button>
+          <button class="tab-button" onclick="switchTab('template-dapps')">Template Dapps</button>
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: Contract Preview -->
+      <div id="contract-preview" class="tab-content active">
+        <div class="view-switcher">
+          <button class="view-button" onclick="setViewMode('natural')">Natural</button>
+          <button class="view-button" onclick="setViewMode('json')">JSON</button>
+          <button class="view-button active" onclick="setViewMode('solidity')">Solidity</button>
+          <button class="view-button" onclick="setViewMode('abi')">ABI</button>
+        </div>
+        <div id="finalContract"></div>
+        <div class="approval-buttons">
+          <button onclick="approveContract()" style="background-color: var(--success-color);">
+            ✅ Approve
+          </button>
+          <button onclick="requestChanges()" style="background-color: var(--warning-color);">
+            ✏️ Request Changes
+          </button>
+          <button onclick="compileContract()" style="background-color: var(--primary-color);">
+            🔄 Compile
+          </button>
+          <button onclick="quickAudit()" style="background-color: #673AB7;">
+            ⚡ Quick Audit
+          </button>
+          <button onclick="archiveContract()" style="background-color: #3fabb5;">
+            🗄️ Archive
+          </button>
+          <!-- Removed Deploy & Verify -->
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: My Contracts -->
+      <div id="my-contracts" class="tab-content">
+        <h2>My Contracts</h2>
+        <ul class="contract-list">
+          <!-- SAMPLE CONTRACT 1 -->
+          <li class="contract-item">
+            <div class="contract-top-row">
+              <div class="contract-left-info">
+                <span class="contract-lang solidity">
+                  <i class="fas fa-file-code"></i> Solidity
+                </span>
+                <span class="contract-name">TokenSwap</span>
+              </div>
+              <div class="contract-actions">
+                <button class="icon-button" title="View Audit"><i class="fas fa-shield-alt"></i></button>
+                <button class="icon-button" title="Edit"><i class="fas fa-edit"></i></button>
+                <button class="icon-button" title="Share"><i class="fas fa-share-alt"></i></button>
+                <button class="icon-button" title="Delete"><i class="fas fa-trash-alt"></i></button>
+              </div>
+            </div>
+
+            <div class="deployments-toggle" onclick="toggleDeployments(this)">
+              <span>Deployments</span>
+              <i class="fas fa-chevron-down"></i>
+            </div>
+            <ul class="network-list">
+              <li>
+                <div class="network-left">
+                  <span class="network-symbol">ETH</span>
+                  <span class="network-name">Ethereum Mainnet</span>
+                </div>
+                <div class="network-right">
+                  <i class="fas fa-rocket network-status-icon deployed" title="Deployed"></i>
+                  <i class="fas fa-check-circle network-status-icon verified" title="Verified"></i>
+                  <button class="icon-button" title="Copy Address" onclick="copyToClipboard('0x123456789ABCDEF')">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                  <!-- Interact with Agent = full button now -->
+                  <button class="icon-button" onclick="addNotification('Interact via Agent clicked')">
+                    Interact via Agent
+                  </button>
+                </div>
+              </li>
+              <li>
+                <div class="network-left">
+                  <span class="network-symbol">ETH</span>
+                  <span class="network-name">Polygon Mumbai</span>
+                </div>
+                <div class="network-right">
+                  <i class="fas fa-rocket network-status-icon" title="Deployed" style="color: rgb(61, 63, 61);"></i>
+                  <i class="fas fa-check-circle network-status-icon" title="Verified" style="color: rgb(65, 67, 65);"></i>
+                  <button class="icon-button" title="Copy Address" onclick="copyToClipboard('0x123456789ABCDEF')">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                  <button class="icon-button" onclick="addNotification('Interact via Agent clicked')">
+                    Interact via Agent
+                  </button>
+                </div>
+              </li>
+              <li>
+                <div class="network-left">
+                  <span class="network-symbol">ETH</span>
+                  <span class="network-name">Binance Smart Chain</span>
+                </div>
+                <div class="network-right">
+                  <i class="fas fa-rocket network-status-icon deployed" title="Deployed"></i>
+                  <i class="fas fa-check-circle network-status-icon verified" title="Verified"></i>
+                  <button class="icon-button" title="Copy Address" onclick="copyToClipboard('0x123456789ABCDEF')">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                  <button class="icon-button" onclick="addNotification('Interact via Agent clicked')">
+                    Interact via Agent
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </li>
+
+          <!-- SAMPLE CONTRACT 2 -->
+          <li class="contract-item">
+            <div class="contract-top-row">
+              <div class="contract-left-info">
+                <span class="contract-lang vyper">
+                  <i class="fas fa-file-code"></i> Vyper
+                </span>
+                <span class="contract-name">NFTMarketplace</span>
+              </div>
+              <div class="contract-actions">
+                <button class="icon-button" title="View Audit"><i class="fas fa-shield-alt"></i></button>
+                <button class="icon-button" title="Edit"><i class="fas fa-edit"></i></button>
+                <button class="icon-button" title="Share"><i class="fas fa-share-alt"></i></button>
+                <button class="icon-button" title="Delete"><i class="fas fa-trash-alt"></i></button>
+              </div>
+            </div>
+          </li>
+
+          <!-- SAMPLE CONTRACT 3 -->
+          <li class="contract-item">
+            <div class="contract-top-row">
+              <div class="contract-left-info">
+                <span class="contract-lang rust">
+                  <i class="fas fa-file-code"></i> Rust
+                </span>
+                <span class="contract-name">DeFiLending</span>
+              </div>
+              <div class="contract-actions">
+                <button class="icon-button" title="View Audit"><i class="fas fa-shield-alt"></i></button>
+                <button class="icon-button" title="Edit"><i class="fas fa-edit"></i></button>
+                <button class="icon-button" title="Share"><i class="fas fa-share-alt"></i></button>
+                <button class="icon-button" title="Delete"><i class="fas fa-trash-alt"></i></button>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- TAB CONTENT: Audit Report -->
+      <div id="audit-report" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <input type="text" id="contract-id-input" placeholder="Search Contract ID"
+                 style="flex-grow: 1; padding: 10px; border-radius: 5px; border: 1px solid #ccc;">
+          <button class="reaudit-button" onclick="requestReaudit()" style="margin-left: 20px;">
+            🔄 Request Re-audit
+          </button>
+        </div>
+        <h2>Audit Report</h2>
+        <div class="audit-status">
+          <span class="status-label">Status:</span>
+          <span class="status-value in-progress">In Progress</span>
+        </div>
+        <div class="audit-findings">
+          <h3>Findings</h3>
+          <ul class="finding-list">
+            <li class="finding-item high">
+              <span class="severity">High</span>
+              <p>Reentrancy vulnerability in withdrawFunds() function</p>
+            </li>
+            <li class="finding-item medium">
+              <span class="severity">Medium</span>
+              <p>Unchecked return value for token transfer</p>
+            </li>
+            <li class="finding-item low">
+              <span class="severity">Low</span>
+              <p>Unused state variable</p>
+            </li>
+          </ul>
+        </div>
+        <div class="audit-remarks">
+          <h3>Remarks</h3>
+          <p>The contract generally follows good practices, but there are some critical issues that need to be 
+             addressed before deployment. The high-severity reentrancy vulnerability must be fixed immediately.</p>
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: Template Dapps -->
+      <div id="template-dapps" class="tab-content">
+        <h2>Template Dapps</h2>
+        <ul>
+          <li>Uniswap V2 Template</li>
+          <li>Uniswap V3 Template</li>
+          <li>Aave Template</li>
+          <li>SushiSwap Template</li>
+          <li>Compound Template</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Right half: Chat Column -->
+    <div class="chat-column">
+      <!-- Distinct container for the language toggles + mode dropdown -->
+      <div class="chat-language-container">
+        <div class="chat-language-tabs">
+          <button class="language-toggle active" id="solidityToggle" onclick="setLanguage('solidity')">Solidity</button>
+          <button class="language-toggle" id="vyperToggle" onclick="setLanguage('vyper')">Vyper</button>
+          <button class="language-toggle" id="rustToggle" onclick="setLanguage('rust')">Rust</button>
+        </div>
+        <!-- Simple dropdown on the right side for "Basic Mode" or "Advanced Mode" -->
+        <div class="chat-mode-dropdown">
+          <select id="chatModeSelect" onchange="changeChatMode()">
+            <option value="basic">Basic Mode</option>
+            <option value="advanced">Advanced Mode</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Colorful Notification area inside the chat (top-left) -->
+      <div class="chat-notification-container" id="chatNotifications"></div>
+
+      <div id="chat-container"></div>
+      <form id="input-form">
+        <input type="text" id="message-input" placeholder="Type your answer here...">
+        <button type="submit" id="submit-btn" style="background-color: var(--primary-color);">
+          <span id="button-text">Send</span>
+          <div class="loading-spinner" id="loading-spinner" style="display: none;"></div>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Example "other panels" (hidden initially) -->
+  <div class="placeholder-panel" id="examplePanel1" style="display:none;">
+    <h1>My Agents</h1>
+    <p>Some additional content for your agents can go here.</p>
+  </div>
+  <div class="placeholder-panel" id="examplePanel2" style="display:none;">
+    <h1>My Oracles</h1>
+    <p>Another placeholder for demonstration of oracles.</p>
+  </div>
+
+  <!-- JS -->
+  <script src="./js/script.js"></script>
+</body>
+</html>
