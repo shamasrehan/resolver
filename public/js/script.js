@@ -484,6 +484,187 @@ function startNewChat() {
     });
 }
 
+
+/**
+ * Switch between phases with proper data management
+ */
+async function switchPhase(targetPhase) {
+  if (targetPhase === AppState.phase) return; // Already in this phase
+  
+  try {
+    // Show loading state
+    AppState.setLoading(true);
+    addNotification(`Transitioning to Phase ${targetPhase}...`, 'info');
+    
+    // Call server to handle phase transition
+    const response = await fetch("/api/phase-transition", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetPhase: targetPhase
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    // Update UI based on response
+    if (result.error) {
+      addNotification(`Error: ${result.error}`, 'error');
+    } else {
+      // Clear chat if needed
+      if (targetPhase < AppState.phase) {
+        // Visual transition effect
+        elements.chatContainer.style.opacity = '0';
+        
+        setTimeout(() => {
+          // Update chat container
+          elements.chatContainer.innerHTML = '';
+          
+          // Update the phase
+          AppState.setPhase(result.phase);
+          
+          // Show phase transition message
+          if (result.message) {
+            addMessage('assistant', result.message);
+          }
+          
+          // Update contract display if available
+          if (result.contract) {
+            updateContractPreview(result.contract);
+          } else {
+            // Clear contract display
+            AppState.currentContract = null;
+            renderContractContent();
+          }
+          
+          // Restore visibility
+          elements.chatContainer.style.opacity = '1';
+        }, 300);
+      } else {
+        // Forward phase transition
+        AppState.setPhase(result.phase);
+        
+        // Show phase transition message
+        if (result.message) {
+          addMessage('assistant', result.message);
+        }
+        
+        // Update contract display if available
+        if (result.contract) {
+          updateContractPreview(result.contract);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error switching phases:", error);
+    addNotification(`Failed to switch phases: ${error.message}`, 'error');
+  } finally {
+    AppState.setLoading(false);
+  }
+}
+
+/**
+ * Add phase navigation buttons to the UI
+ */
+function addPhaseNavigation() {
+  // Create navigation container if it doesn't exist
+  let navContainer = document.querySelector('.phase-navigation');
+  if (!navContainer) {
+    navContainer = document.createElement('div');
+    navContainer.className = 'phase-navigation';
+    
+    // Add navigation buttons
+    navContainer.innerHTML = `
+      <button id="prevPhaseBtn" class="phase-nav-btn" title="Previous Phase">
+        <i class="fas fa-arrow-left"></i> Previous
+      </button>
+      <button id="nextPhaseBtn" class="phase-nav-btn" title="Next Phase">
+        Next <i class="fas fa-arrow-right"></i>
+      </button>
+    `;
+    
+    // Insert after the stepper
+    const stepper = document.querySelector('.process-stepper');
+    if (stepper && stepper.parentNode) {
+      stepper.parentNode.insertBefore(navContainer, stepper.nextSibling);
+    }
+    
+    // Add event listeners
+    document.getElementById('prevPhaseBtn').addEventListener('click', () => {
+      if (AppState.phase > 1) {
+        switchPhase(AppState.phase - 1);
+      }
+    });
+    
+    document.getElementById('nextPhaseBtn').addEventListener('click', () => {
+      if (AppState.phase < 3) {
+        switchPhase(AppState.phase + 1);
+      }
+    });
+    
+    // Add styles for phase navigation
+    const style = document.createElement('style');
+    style.textContent = `
+      .phase-navigation {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 20px;
+        background-color: var(--bg-color);
+        border-bottom: 1px solid var(--border-color);
+      }
+      
+      .phase-nav-btn {
+        padding: 8px 16px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .phase-nav-btn:hover {
+        background-color: var(--primary-dark);
+        transform: translateY(-2px);
+      }
+      
+      .phase-nav-btn:disabled {
+        background-color: var(--text-muted);
+        cursor: not-allowed;
+        transform: none;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  // Update button states based on current phase
+  updatePhaseNavigationButtons();
+}
+
+/**
+ * Update phase navigation button states
+ */
+function updatePhaseNavigationButtons() {
+  const prevBtn = document.getElementById('prevPhaseBtn');
+  const nextBtn = document.getElementById('nextPhaseBtn');
+  
+  if (prevBtn && nextBtn) {
+    // Disable previous button in Phase 1
+    prevBtn.disabled = AppState.phase <= 1;
+    
+    // Disable next button in Phase 3
+    nextBtn.disabled = AppState.phase >= 3;
+  }
+}
+
 /* --- ON LOAD with page animations --- */
 window.onload = () => {
   // Initialize UI with fade-in animation
@@ -603,6 +784,8 @@ window.onload = () => {
       showContractPreview(false);
     }
   });
+  // Add phase navigation
+  addPhaseNavigation();
 };/*******************************************************************************
  * FRONT-END LOGIC FOR UI & CHAT
  * Enhanced with better state management, UI feedback, and animations
@@ -679,8 +862,151 @@ const AppState = {
     }
     
     updateStepIndicator(1);
+  },
+
+
+  ////////////////////////////////////
+
+
+  // Enhanced phase management
+  setPhase(newPhase) {
+    // No-op if same phase
+    if (this.phase === newPhase) return;
+    
+    const oldPhase = this.phase;
+    this.phase = newPhase;
+    
+    console.log(`Phase transition: ${oldPhase} -> ${newPhase}`);
+    
+    // Update UI for phase change
+    updateStepIndicator(newPhase);
+    updatePhaseNavigationButtons();
+    
+    // Auto-switch tabs based on phase
+    if (newPhase === 2) {
+      // In phase 2, focus on the chat to review requirements
+      if (document.querySelector('.tab-button.active').textContent !== 'Contract Preview') {
+        document.querySelector('.tab-button[onclick*="contract-preview"]').click();
+      }
+    } else if (newPhase === 3) {
+      // In phase 3, show contract preview with JSON or Solidity active
+      if (document.querySelector('.tab-button.active').textContent !== 'Contract Preview') {
+        document.querySelector('.tab-button[onclick*="contract-preview"]').click();
+      }
+      
+      // Switch to appropriate view based on contract state
+      if (this.currentContract) {
+        if (this.currentContract.jsonSpec && !this.currentContract.contracts) {
+          // We have JSON spec but no code - show JSON view
+          document.querySelector('.view-button[onclick*="json"]').click();
+        } else if (this.currentContract.contracts && this.currentContract.contracts.length > 0) {
+          // We have generated code - show code view
+          document.querySelector('.view-button[onclick*="solidity"]').click();
+        }
+      }
+    }
+    
+    // Return true to indicate successful phase change
+    return true;
+  },
+  
+  // Methods for handling requirements review
+  showRequirementsReview(requirementsSummary) {
+    // Add the special requirements review message with buttons
+    addRequirementsReviewMessage(requirementsSummary);
+  },
+  
+  // Methods for handling contract generation
+  updateContractWithJson(jsonSpec) {
+    if (!this.currentContract) {
+      this.currentContract = {};
+    }
+    
+    this.currentContract.jsonSpec = jsonSpec;
+    
+    // Update timestamp
+    this.currentContract.timestamp = new Date().toISOString();
+    
+    // Update preview
+    renderContractContent();
+    
+    // Update language indicator in header
+    updateLanguageIndicator();
+    
+    return true;
+  },
+  
+  updateContractWithCode(code) {
+    if (!this.currentContract) {
+      this.currentContract = {
+        jsonSpec: { contractName: "SmartContract" }
+      };
+    }
+    
+    if (!this.currentContract.contracts) {
+      this.currentContract.contracts = [];
+    }
+    
+    if (this.currentContract.contracts.length > 0) {
+      this.currentContract.contracts[0].content = code;
+    } else {
+      this.currentContract.contracts.push({
+        name: this.currentContract.jsonSpec.contractName || "SmartContract",
+        content: code
+      });
+    }
+    
+    // Update timestamp
+    this.currentContract.timestamp = new Date().toISOString();
+    
+    // Update preview
+    renderContractContent();
+    
+    // Update language indicator in header
+    updateLanguageIndicator();
+    
+    return true;
   }
 };
+
+
+/**
+ * Update language indicator in contract preview header
+ */
+function updateLanguageIndicator() {
+  const languageIcon = document.querySelector('.language-icon i');
+  const languageName = document.querySelector('.language-name');
+  const timestamp = document.querySelector('.preview-timestamp');
+  
+  if (!languageIcon || !languageName || !timestamp) return;
+  
+  // Update language icon and name
+  switch (AppState.selectedLanguage) {
+    case 'solidity':
+      languageIcon.className = 'fab fa-ethereum';
+      languageName.textContent = 'Solidity';
+      break;
+    case 'vyper':
+      languageIcon.className = 'fas fa-snake';
+      languageName.textContent = 'Vyper';
+      break;
+    case 'rust':
+      languageIcon.className = 'fas fa-cog';
+      languageName.textContent = 'Rust';
+      break;
+    default:
+      languageIcon.className = 'fas fa-file-code';
+      languageName.textContent = AppState.selectedLanguage;
+  }
+  
+  // Update timestamp
+  if (AppState.currentContract && AppState.currentContract.timestamp) {
+    const date = new Date(AppState.currentContract.timestamp);
+    timestamp.textContent = `Generated: ${date.toLocaleString()}`;
+  } else {
+    timestamp.textContent = '';
+  }
+}
 
 // Enhanced API function with proper error handling and timeout
 async function callServerAPI(message, newChat = false) {
@@ -1130,15 +1456,28 @@ function hideLoading() {
 }
 
 /* --- MESSAGING UTILS with enhanced formatting and animations --- */
-function addMessage(role, content) {
+/* --- ENHANCED MESSAGING UTILS with improved formatting and special message types --- */
+function addMessage(role, content, type = '') {
   const messageDiv = document.createElement('div');
   
+  // Base class based on role
   if (role === 'assistant') {
-    messageDiv.className = 'message bot-message';
+    messageDiv.className = `message bot-message ${type}`;
   } else if (role === 'user') {
-    messageDiv.className = 'message user-message';
+    messageDiv.className = `message user-message ${type}`;
   } else {
-    messageDiv.className = 'message system-notification';
+    messageDiv.className = `message system-notification ${type}`;
+  }
+  
+  // Special styling for different message types
+  if (type === 'requirements-review') {
+    messageDiv.classList.add('requirements-review');
+  } else if (type === 'code-generation') {
+    messageDiv.classList.add('code-generation');
+  } else if (type === 'error-message') {
+    messageDiv.classList.add('error-message');
+  } else if (type === 'success-message') {
+    messageDiv.classList.add('success-message');
   }
   
   // Process content for special formatting
@@ -1157,7 +1496,865 @@ function addMessage(role, content) {
   if (messageDiv.querySelector('pre code') && window.Prism) {
     setTimeout(() => Prism.highlightAllUnder(messageDiv), 100);
   }
+  
+  return messageDiv;
 }
+
+
+/**
+ * Add special requirements review message with styled elements 
+ * and approval/edit buttons
+ */
+function addRequirementsReviewMessage(requirementsSummary) {
+  const content = `
+    <div class="requirements-review-container">
+      <h3><i class="fas fa-clipboard-check"></i> Requirements Summary</h3>
+      <p>I've gathered the following requirements for your smart contract. Please review them and confirm they're correct:</p>
+      
+      <div class="requirements-code">
+        <pre>${escapeHtml(requirementsSummary)}</pre>
+      </div>
+      
+      <div class="requirements-actions">
+        <button class="approve-requirements-btn">
+          <i class="fas fa-check"></i> Approve & Generate Contract
+        </button>
+        <button class="edit-requirements-btn">
+          <i class="fas fa-pencil-alt"></i> Make Changes
+        </button>
+      </div>
+    </div>
+  `;
+  
+  // Add the special message
+  const messageDiv = addMessage('assistant', content, 'requirements-review');
+  
+  // Add event listeners to buttons
+  const approveBtn = messageDiv.querySelector('.approve-requirements-btn');
+  const editBtn = messageDiv.querySelector('.edit-requirements-btn');
+  
+  if (approveBtn) {
+    approveBtn.addEventListener('click', () => {
+      // Disable buttons to prevent double clicks
+      approveBtn.disabled = true;
+      editBtn.disabled = true;
+      
+      // Add loading state
+      approveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+      
+      // Add user confirmation message
+      addMessage('user', 'I approve these requirements. Please generate the contract.');
+      
+      // Transition to phase 3
+      switchPhase(3);
+    });
+  }
+  
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      // Add user message
+      addMessage('user', 'I\'d like to make some changes to the requirements.');
+      
+      // Add assistant response prompt
+      addMessage('assistant', 'What changes would you like to make to the requirements? Please let me know and I\'ll update the summary.');
+      
+      // Focus on input
+      elements.messageInput.focus();
+    });
+  }
+  
+  // Add styles for requirements review if not already added
+  if (!document.getElementById('requirements-review-style')) {
+    const style = document.createElement('style');
+    style.id = 'requirements-review-style';
+    style.textContent = `
+      .requirements-review-container {
+        margin: 0;
+        padding: 0;
+      }
+      
+      .requirements-review-container h3 {
+        margin-top: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--primary-color);
+      }
+      
+      .requirements-code {
+        background-color: #f5f7fa;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        margin: 16px 0;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      
+      .requirements-code pre {
+        margin: 0;
+        padding: 16px;
+        background-color: transparent;
+        white-space: pre-wrap;
+        color: var(--text-color);
+        font-size: 0.9rem;
+      }
+      
+      .requirements-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 16px;
+      }
+      
+      .approve-requirements-btn,
+      .edit-requirements-btn {
+        padding: 10px 16px;
+        border: none;
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+      }
+      
+      .approve-requirements-btn {
+        background-color: var(--success-color);
+        color: white;
+      }
+      
+      .edit-requirements-btn {
+        background-color: var(--warning-color);
+        color: white;
+      }
+      
+      .approve-requirements-btn:hover,
+      .edit-requirements-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+      }
+      
+      .approve-requirements-btn:disabled,
+      .edit-requirements-btn:disabled {
+        background-color: var(--text-muted);
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  return messageDiv;
+}
+
+/**
+ * Process message content for improved formatting 
+ * with specific handling for code blocks and schema
+ */
+function processMessageContent(content) {
+  // Look for JSON schema blocks and format them specially
+  content = content.replace(/```json schema\n([\s\S]*?)```/g, (_, schema) => {
+    try {
+      // Try to parse and pretty print the schema
+      const parsedSchema = JSON.parse(schema.trim());
+      const prettySchema = JSON.stringify(parsedSchema, null, 2);
+      return `<div class="json-schema-block">
+        <div class="schema-header">
+          <span><i class="fas fa-code-branch"></i> JSON Schema</span>
+          <button class="copy-schema-btn" onclick="copyToClipboard('${escapeHtml(prettySchema)}')">
+            <i class="fas fa-copy"></i> Copy
+          </button>
+        </div>
+        <pre><code class="language-json">${escapeHtml(prettySchema)}</code></pre>
+      </div>`;
+    } catch (e) {
+      // If parsing fails, just format as regular code
+      return `<pre><code class="language-json">${escapeHtml(schema.trim())}</code></pre>`;
+    }
+  });
+
+  // Convert markdown code blocks with improved syntax highlighting
+  content = content.replace(/```([a-z]*)\n([\s\S]*?)```/g, (_, language, code) => {
+    return `<pre><code class="language-${language || 'text'}">${escapeHtml(code.trim())}</code></pre>`;
+  });
+  
+  // Convert markdown-style links with target blank and security
+  content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, 
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  
+  // Convert inline code with matching backticks
+  content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Convert bold text with matching asterisks
+  content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  
+  // Convert italic text with matching underscores
+  content = content.replace(/_([^_]+)_/g, '<em>$1</em>');
+  
+  // Handle special requirements summary section
+  content = content.replace(/===\s*REQUIREMENTS SUMMARY\s*===([\s\S]*?)(?===|$)/gi, (match, summary) => {
+    return `<div class="requirements-summary">
+      <div class="summary-header">
+        <i class="fas fa-list-check"></i>
+        <h3>Requirements Summary</h3>
+      </div>
+      <div class="summary-content">${summary}</div>
+    </div>`;
+  });
+  
+  // Convert line breaks to <br>
+  content = content.replace(/\n/g, '<br>');
+  
+  return content;
+}
+
+/**
+ * Add a code generation result message with syntax highlighting and copy button
+ */
+function addCodeGenerationMessage(code, language) {
+  const content = `
+    <div class="code-generation-container">
+      <div class="code-header">
+        <span><i class="fas fa-code"></i> Generated ${language.charAt(0).toUpperCase() + language.slice(1)} Code</span>
+        <button class="copy-code-btn" onclick="copyToClipboard(${JSON.stringify(code)})">
+          <i class="fas fa-copy"></i> Copy Code
+        </button>
+      </div>
+      <pre><code class="language-${language}">${escapeHtml(code)}</code></pre>
+    </div>
+  `;
+  
+  // Add the message
+  const messageDiv = addMessage('assistant', content, 'code-generation');
+  
+  // Add styles for code generation if not already added
+  if (!document.getElementById('code-generation-style')) {
+    const style = document.createElement('style');
+    style.id = 'code-generation-style';
+    style.textContent = `
+      .code-generation-container {
+        margin: 0;
+        padding: 0;
+      }
+      
+      .code-header, .schema-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #2c3e50;
+        color: white;
+        padding: 8px 12px;
+        border-top-left-radius: var(--border-radius);
+        border-top-right-radius: var(--border-radius);
+        font-size: 0.9rem;
+      }
+      
+      .code-header span, .schema-header span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .copy-code-btn, .copy-schema-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        border-radius: 4px;
+        color: white;
+        padding: 4px 8px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      
+      .copy-code-btn:hover, .copy-schema-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      
+      .code-generation-container pre {
+        margin: 0;
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      
+      .json-schema-block {
+        margin: 16px 0;
+        border-radius: var(--border-radius);
+        overflow: hidden;
+      }
+      
+      .json-schema-block pre {
+        margin: 0;
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      
+      .requirements-summary {
+        background-color: #f8f9fa;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        margin: 16px 0;
+        padding: 16px;
+      }
+      
+      .summary-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      
+      .summary-header i {
+        color: var(--primary-color);
+        font-size: 1.2rem;
+      }
+      
+      .summary-header h3 {
+        margin: 0;
+        color: var(--primary-color);
+      }
+      
+      .summary-content {
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  // Apply syntax highlighting
+  if (window.Prism) {
+    setTimeout(() => Prism.highlightAllUnder(messageDiv), 100);
+  }
+  
+  return messageDiv;
+}
+
+/**
+ * Copy text to clipboard with visual feedback
+ */
+function copyToClipboard(text) {
+  // Create a temporary textarea element
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  
+  // Select and copy the text
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+  
+  // Show feedback notification
+  addNotification('Copied to clipboard!', 'success');
+}
+
+/**
+ * Enhance contract preview tab with more interactive features
+ */
+function enhanceContractPreview() {
+  // Add header with language indicator and generation timestamp
+  const previewHeader = document.createElement('div');
+  previewHeader.className = 'contract-preview-header';
+  previewHeader.innerHTML = `
+    <div class="preview-info">
+      <div class="language-indicator">
+        <span class="language-icon"><i class="fab fa-ethereum"></i></span>
+        <span class="language-name">Solidity</span>
+      </div>
+      <span class="preview-timestamp">Generated: Just now</span>
+    </div>
+    <div class="preview-actions">
+      <button class="preview-action" title="Copy to Clipboard" onclick="copyContractToClipboard()">
+        <i class="fas fa-copy"></i>
+      </button>
+      <button class="preview-action" title="Download" onclick="downloadContract()">
+        <i class="fas fa-download"></i>
+      </button>
+      <button class="preview-action" title="Regenerate" onclick="regenerateContract()">
+        <i class="fas fa-sync-alt"></i>
+      </button>
+    </div>
+  `;
+  
+  // Insert at the beginning of the tab content
+  const tabContent = document.getElementById('contract-preview');
+  if (tabContent) {
+    tabContent.insertBefore(previewHeader, tabContent.firstChild);
+  }
+  
+  // Add styles for the preview header
+  const style = document.createElement('style');
+  style.textContent = `
+    .contract-preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+    
+    .preview-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    
+    .language-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    
+    .language-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background-color: rgba(63, 81, 181, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary-color);
+    }
+    
+    .preview-timestamp {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    
+    .preview-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .preview-action {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background-color: rgba(63, 81, 181, 0.1);
+      color: var(--primary-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .preview-action:hover {
+      background-color: var(--primary-color);
+      color: white;
+      transform: translateY(-2px);
+    }
+    
+    /* Tab Styling Enhancement */
+    .tab-content {
+      position: relative;
+    }
+    
+    .view-switcher {
+      top: 12px;
+      right: 20px;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 4px;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow-sm);
+    }
+    
+    /* Empty State Enhancement */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 20px;
+      text-align: center;
+      background-color: #f9fafc;
+      border-radius: var(--border-radius);
+      border: 2px dashed var(--border-color);
+    }
+    
+    .empty-state i {
+      font-size: 48px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      opacity: 0.5;
+    }
+    
+    .empty-state h3 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: var(--text-color);
+    }
+    
+    .empty-state p {
+      color: var(--text-muted);
+      max-width: 400px;
+      margin-bottom: 24px;
+    }
+    
+    .empty-state-btn {
+      padding: 10px 16px;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .empty-state-btn:hover {
+      background-color: var(--primary-dark);
+      transform: translateY(-2px);
+    }
+  `;
+  document.head.appendChild(style);
+  
+  // Update empty state with more interactive content
+  updateEmptyState();
+}
+
+/**
+ * Update empty state with more interactive elements
+ */
+function updateEmptyState() {
+  // Only update if there's no contract yet
+  if (AppState.currentContract) return;
+  
+  elements.finalContractDiv.innerHTML = `
+    <div class="empty-state">
+      <i class="fas fa-file-contract"></i>
+      <h3>No Contract Generated Yet</h3>
+      <p>Complete Phase 1 to gather requirements, then proceed to Phase 2 to generate your smart contract.</p>
+      <button class="empty-state-btn" onclick="showContractTutorial()">
+        <i class="fas fa-play-circle"></i> Watch Tutorial
+      </button>
+    </div>
+  `;
+}
+
+/**
+ * Copy contract code to clipboard
+ */
+function copyContractToClipboard() {
+  if (!AppState.currentContract) {
+    addNotification('No contract available to copy', 'warning');
+    return;
+  }
+  
+  let textToCopy = '';
+  
+  if (AppState.viewMode === 'json') {
+    // Copy JSON specification
+    textToCopy = JSON.stringify(AppState.currentContract.jsonSpec, null, 2);
+  } else if (AppState.viewMode === 'solidity' && AppState.currentContract.contracts && AppState.currentContract.contracts.length > 0) {
+    // Copy Solidity code
+    textToCopy = AppState.currentContract.contracts[0].content;
+  } else {
+    // Fallback to full contract data
+    textToCopy = JSON.stringify(AppState.currentContract, null, 2);
+  }
+  
+  copyToClipboard(textToCopy);
+  addNotification('Contract copied to clipboard', 'success');
+}
+
+/**
+ * Download contract as a file
+ */
+function downloadContract() {
+  if (!AppState.currentContract) {
+    addNotification('No contract available to download', 'warning');
+    return;
+  }
+  
+  let content = '';
+  let filename = '';
+  let type = '';
+  
+  if (AppState.viewMode === 'json') {
+    // Download JSON specification
+    content = JSON.stringify(AppState.currentContract.jsonSpec, null, 2);
+    filename = `${AppState.currentContract.jsonSpec.contractName || 'contract'}_spec.json`;
+    type = 'application/json';
+  } else if (AppState.viewMode === 'solidity' && AppState.currentContract.contracts && AppState.currentContract.contracts.length > 0) {
+    // Download Solidity code
+    content = AppState.currentContract.contracts[0].content;
+    filename = `${AppState.currentContract.jsonSpec.contractName || 'contract'}.sol`;
+    type = 'text/plain';
+  } else if (AppState.viewMode === 'vyper' && AppState.currentContract.contracts && AppState.currentContract.contracts.length > 0) {
+    // Download Vyper code
+    content = AppState.currentContract.contracts[0].content;
+    filename = `${AppState.currentContract.jsonSpec.contractName || 'contract'}.vy`;
+    type = 'text/plain';
+  } else if (AppState.viewMode === 'rust' && AppState.currentContract.contracts && AppState.currentContract.contracts.length > 0) {
+    // Download Rust code
+    content = AppState.currentContract.contracts[0].content;
+    filename = `${AppState.currentContract.jsonSpec.contractName || 'contract'}.rs`;
+    type = 'text/plain';
+  } else {
+    // Fallback to full contract data
+    content = JSON.stringify(AppState.currentContract, null, 2);
+    filename = 'contract_data.json';
+    type = 'application/json';
+  }
+  
+  // Create download link
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  
+  addNotification(`Contract downloaded as ${filename}`, 'success');
+}
+
+/**
+ * Regenerate contract code
+ */
+function regenerateContract() {
+  if (!AppState.currentContract || !AppState.currentContract.jsonSpec) {
+    addNotification('No contract specification available to regenerate', 'warning');
+    return;
+  }
+  
+  // Call the code generation function
+  generateCodeFromSpec();
+}
+
+/**
+ * Show a tutorial for contract generation
+ */
+function showContractTutorial() {
+  // Create tutorial overlay
+  const tutorialOverlay = document.createElement('div');
+  tutorialOverlay.className = 'tutorial-overlay';
+  tutorialOverlay.innerHTML = `
+    <div class="tutorial-container">
+      <div class="tutorial-header">
+        <h2>Smart Contract Generation Tutorial</h2>
+        <button class="close-tutorial-btn"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="tutorial-content">
+        <div class="tutorial-step">
+          <div class="step-number">1</div>
+          <div class="step-details">
+            <h3>Requirements Gathering</h3>
+            <p>Describe your smart contract needs. The AI will ask you questions to understand your requirements fully.</p>
+          </div>
+        </div>
+        <div class="tutorial-step">
+          <div class="step-number">2</div>
+          <div class="step-details">
+            <h3>Review & Confirm</h3>
+            <p>Review the requirements summary and confirm if everything looks correct, or request changes.</p>
+          </div>
+        </div>
+        <div class="tutorial-step">
+          <div class="step-number">3</div>
+          <div class="step-details">
+            <h3>Code Generation</h3>
+            <p>The system generates production-ready code in your selected language (Solidity, Vyper, or Rust).</p>
+          </div>
+        </div>
+        <div class="tutorial-step">
+          <div class="step-number">4</div>
+          <div class="step-details">
+            <h3>Refine & Export</h3>
+            <p>Make any needed adjustments, then copy or download your smart contract for deployment.</p>
+          </div>
+        </div>
+      </div>
+      <div class="tutorial-footer">
+        <button class="start-now-btn">
+          <i class="fas fa-rocket"></i> Start Building Now
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(tutorialOverlay);
+  
+  // Add styles for tutorial
+  const style = document.createElement('style');
+  style.textContent = `
+    .tutorial-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .tutorial-container {
+      background-color: white;
+      border-radius: var(--border-radius);
+      width: 90%;
+      max-width: 700px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+    }
+    
+    .tutorial-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .tutorial-header h2 {
+      margin: 0;
+      color: var(--primary-color);
+    }
+    
+    .close-tutorial-btn {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: color 0.2s ease;
+    }
+    
+    .close-tutorial-btn:hover {
+      color: var(--text-color);
+    }
+    
+    .tutorial-content {
+      padding: 20px;
+      flex-grow: 1;
+    }
+    
+    .tutorial-step {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    
+    .step-number {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--primary-color);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    
+    .step-details h3 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: var(--text-color);
+    }
+    
+    .step-details p {
+      margin: 0;
+      color: var(--text-light);
+    }
+    
+    .tutorial-footer {
+      padding: 20px;
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+    }
+    
+    .start-now-btn {
+      padding: 12px 24px;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .start-now-btn:hover {
+      background-color: var(--primary-dark);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+  `;
+  document.head.appendChild(style);
+  
+  // Animate appearance
+  setTimeout(() => {
+    tutorialOverlay.style.opacity = '1';
+    tutorialOverlay.querySelector('.tutorial-container').style.transform = 'translateY(0)';
+  }, 50);
+  
+  // Add event listeners
+  tutorialOverlay.querySelector('.close-tutorial-btn').addEventListener('click', () => {
+    tutorialOverlay.style.opacity = '0';
+    tutorialOverlay.querySelector('.tutorial-container').style.transform = 'translateY(20px)';
+    setTimeout(() => {
+      document.body.removeChild(tutorialOverlay);
+    }, 300);
+  });
+  
+  tutorialOverlay.querySelector('.start-now-btn').addEventListener('click', () => {
+    // Close tutorial
+    tutorialOverlay.style.opacity = '0';
+    tutorialOverlay.querySelector('.tutorial-container').style.transform = 'translateY(20px)';
+    setTimeout(() => {
+      document.body.removeChild(tutorialOverlay);
+    }, 300);
+    
+    // Focus on message input
+    elements.messageInput.focus();
+    
+    // Add a helpful prompt
+    if (elements.chatContainer.childElementCount === 0) {
+      addMessage('assistant', 'I\'m here to help you create a smart contract. What kind of contract would you like to build?');
+    }
+  });
+}
+
+// Call the function to enhance contract preview when the document loads
+window.addEventListener('DOMContentLoaded', () => {
+  enhanceContractPreview();
+});
 
 // Process message content for improved formatting
 function processMessageContent(content) {
@@ -1365,7 +2562,9 @@ function renderContractContent() {
   }, 300);
 }
 
-/* --- VIEW MODE SWITCHING with smooth transitions --- */
+/**
+ * Intercept view mode switching to handle special cases
+ */
 function setViewMode(e, mode) {
   // Store previous mode for transition effects
   const previousMode = AppState.viewMode;
@@ -1379,6 +2578,33 @@ function setViewMode(e, mode) {
   });
   e.target.classList.add('active');
   
+  // Special handling for different modes
+  if (mode === 'json') {
+    // If we have a contract but no JSON spec, notify user
+    if (AppState.currentContract && !AppState.currentContract.jsonSpec) {
+      addNotification('No JSON specification available for this contract', 'warning');
+    }
+  } else if (mode === 'solidity' || mode === 'vyper' || mode === 'rust') {
+    // If we have a JSON spec but no code, offer to generate
+    if (AppState.currentContract && 
+        AppState.currentContract.jsonSpec && 
+        (!AppState.currentContract.contracts || AppState.currentContract.contracts.length === 0)) {
+      
+      // Show prompt to generate code
+      elements.finalContractDiv.innerHTML = `
+        <div class="empty-state">
+          <i class="fas fa-code"></i>
+          <h3>No Code Generated Yet</h3>
+          <p>You have a contract specification but the code hasn't been generated.</p>
+          <button class="empty-state-btn" onclick="generateCodeFromSpec()">
+            <i class="fas fa-magic"></i> Generate ${mode.charAt(0).toUpperCase() + mode.slice(1)} Code
+          </button>
+        </div>
+      `;
+      return;
+    }
+  }
+  
   // Only re-render if the mode actually changed
   if (previousMode !== mode) {
     renderContractContent();
@@ -1388,6 +2614,10 @@ function setViewMode(e, mode) {
 /*******************************************************************************
  * HANDLE CHAT SUBMISSION with improved error handling and user feedback
  ******************************************************************************/
+
+/**
+ * Enhanced submission handler with phase awareness
+ */
 elements.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const userMessage = elements.messageInput.value.trim();
@@ -1409,48 +2639,35 @@ elements.form.addEventListener('submit', async (e) => {
     
     // Display the assistant's reply in chat
     if (responseData.message) {
-      // Add small typing delay for more natural feeling
-      setTimeout(() => {
+      // Check if this is a requirements summary message in phase 1->2 transition
+      const isRequirementsSummary = responseData.message.includes("REQUIREMENTS SUMMARY") || 
+                                    responseData.message.includes("requirements summary");
+      
+      // Special handling for requirements summary
+      if (isRequirementsSummary && (AppState.phase === 1 || responseData.phase === 2)) {
+        // Use special requirements review message
+        addRequirementsReviewMessage(responseData.message);
+      } else {
+        // Regular message
         addMessage('assistant', responseData.message);
-      }, 500);
+      }
     } else if (responseData.error) {
-      setTimeout(() => {
-        addMessage('assistant', `I encountered an error: ${responseData.error}`);
-        AppState.addError(responseData.error);
-      }, 500);
+      addMessage('assistant', `I encountered an error: ${responseData.error}`);
+      AppState.addError(responseData.error);
     }
 
     // If there's a contract in responseData, show it in the left panel
     if (responseData.contract) {
       updateContractPreview(responseData.contract);
       
-      // If the server says we're in Phase 2 *and* there's a contract, auto-switch to contract preview
-      if (responseData.phase === 2) {
-        // Delay contract preview switch for better UX
+      // If we have a JSON spec but no code in phase 3, generate code
+      if (responseData.phase === 3 && 
+          responseData.contract.jsonSpec && 
+          (!responseData.contract.contracts || responseData.contract.contracts.length === 0)) {
+        // Auto-generate code after a short delay
         setTimeout(() => {
-          // Switch left panel tab to "Contract Preview" if not already
-          const previewTabButton = document.querySelector('.tab-button[onclick*="contract-preview"]');
-          if (previewTabButton && !previewTabButton.classList.contains('active')) {
-            previewTabButton.click();
-          }
-          
-          // Switch sub-view based on contract format
-          if (responseData.contract.jsonSpec) {
-            // If we have a JSON spec, show JSON view by default
-            const jsonViewButton = document.querySelector('.view-button[onclick*="json"]');
-            if (jsonViewButton) {
-              jsonViewButton.click();
-            }
-          } else {
-            // Otherwise show Solidity view
-            const solidityViewButton = document.querySelector('.view-button[onclick*="solidity"]');
-            if (solidityViewButton) {
-              solidityViewButton.click();
-            }
-          }
-          
-          addNotification('Contract generated! Check the Contract Preview tab.', 'success');
-        }, 1000);
+          generateCodeFromSpec();
+        }, 1500);
       }
     }
 
@@ -2480,6 +3697,79 @@ function addNotification(message, type = 'info', className = '') {
   return notificationId;
 }
 
+/**
+ * Render and update the JSON tab in contract preview
+ */
+function updateJsonView(contractData) {
+  if (!contractData) {
+    return '// No contract data available for JSON view.';
+  }
+  
+  try {
+    // Focus on the JSON spec if available
+    if (contractData.jsonSpec) {
+      // Pretty-print the JSON spec with proper indentation
+      return JSON.stringify(contractData.jsonSpec, null, 2);
+    } else {
+      // Fallback to full contract data
+      return JSON.stringify(contractData, null, 2);
+    }
+  } catch (err) {
+    console.error("Error formatting JSON data:", err);
+    return `// Error formatting JSON: ${err.message}`;
+  }
+}
+
+// Update the renderContractContent function to use this for JSON view
+function renderContractContent() {
+  if (!AppState.currentContract) {
+    elements.finalContractDiv.innerHTML = `
+      <div class="empty-state">
+        <i class="fas fa-file-contract" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 16px;"></i>
+        <p>No contract generated yet. Complete Phase 1 to generate a contract.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  let mainContent = '';
+  const viewMode = AppState.viewMode;
+
+  if (viewMode === 'json') {
+    // Use the enhanced JSON view
+    const formattedJson = updateJsonView(AppState.currentContract);
+    mainContent = `<pre><code class="language-json">${escapeHtml(formattedJson)}</code></pre>`;
+  } else if (viewMode === 'solidity') {
+    // Show Solidity code
+    const code = generateSolidityCode(AppState.currentContract);
+    mainContent = `<pre><code class="language-solidity">${escapeHtml(code)}</code></pre>`;
+  } else if (viewMode === 'abi') {
+    // Show ABI with improved formatting
+    try {
+      const abi = generateAbiFromContract(AppState.currentContract);
+      mainContent = `<pre><code class="language-json">${escapeHtml(JSON.stringify(abi, null, 2))}</code></pre>`;
+    } catch (err) {
+      console.error("Error generating ABI:", err);
+      mainContent = `<pre><code class="language-json">Error generating ABI: ${err.message}</code></pre>`;
+    }
+  } else {
+    // Natural language view
+    mainContent = generateNaturalLanguageDescription(AppState.currentContract);
+  }
+
+  // Apply changes with transition
+  elements.finalContractDiv.style.opacity = '0';
+  setTimeout(() => {
+    elements.finalContractDiv.innerHTML = mainContent;
+    elements.finalContractDiv.style.opacity = '1';
+    
+    // Apply syntax highlighting if needed
+    if ((viewMode === 'solidity' || viewMode === 'json' || viewMode === 'abi') && window.Prism) {
+      Prism.highlightAllUnder(elements.finalContractDiv);
+    }
+  }, 300);
+}
+
 function generateCodeFromSpec() {
   if (!AppState.currentContract || !AppState.currentContract.jsonSpec) {
     addNotification('No contract specification to generate code from', 'warning');
@@ -2564,6 +3854,253 @@ function generateCodeFromSpec() {
     addNotification(`Error generating code: ${error.message}`, 'error');
   });
 }
+
+/**
+ * Enhanced function to generate contract code from JSON specification
+ */
+function generateCodeFromSpec() {
+  if (!AppState.currentContract || !AppState.currentContract.jsonSpec) {
+    addNotification('No contract specification to generate code from', 'warning');
+    return;
+  }
+  
+  // Show generation in progress
+  addNotification('Generating contract code...', 'info');
+  
+  // Add generation animation
+  const genOverlay = document.createElement('div');
+  genOverlay.className = 'generate-overlay';
+  genOverlay.innerHTML = `
+    <div class="generate-animation">
+      <i class="fas fa-code"></i>
+    </div>
+    <p>Generating ${AppState.selectedLanguage} code...</p>
+    <div class="progress-bar-container">
+      <div class="progress-bar"></div>
+    </div>
+  `;
+  
+  elements.finalContractDiv.parentNode.appendChild(genOverlay);
+  
+  // Add styles for progress bar if not already added
+  if (!document.getElementById('progress-bar-style')) {
+    const style = document.createElement('style');
+    style.id = 'progress-bar-style';
+    style.textContent = `
+      .progress-bar-container {
+        width: 200px;
+        height: 6px;
+        background-color: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+        margin-top: 20px;
+        overflow: hidden;
+      }
+      
+      .progress-bar {
+        height: 100%;
+        width: 0;
+        background-color: var(--primary-color);
+        animation: progress 2s ease-in-out forwards;
+      }
+      
+      @keyframes progress {
+        0% { width: 0; }
+        20% { width: 20%; }
+        50% { width: 60%; }
+        75% { width: 85%; }
+        100% { width: 100%; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  // Make API call to generate code
+  fetch("/api/generate-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonSpec: AppState.currentContract.jsonSpec,
+      language: AppState.selectedLanguage
+    }),
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
+  })
+  .then(data => {
+    // Remove overlay with a fade out
+    genOverlay.style.opacity = '0';
+    genOverlay.style.transition = 'opacity 0.3s ease';
+    
+    setTimeout(() => {
+      if (genOverlay.parentNode) {
+        genOverlay.parentNode.removeChild(genOverlay);
+      }
+      
+      if (data.status === 'success') {
+        // Update contract code
+        if (!AppState.currentContract.contracts) {
+          AppState.currentContract.contracts = [];
+        }
+        
+        if (AppState.currentContract.contracts.length > 0) {
+          AppState.currentContract.contracts[0].content = data.code;
+        } else {
+          AppState.currentContract.contracts.push({
+            name: AppState.currentContract.jsonSpec.contractName || "SmartContract",
+            content: data.code
+          });
+        }
+        
+        // Render updated contract
+        renderContractContent();
+        
+        addNotification(`${AppState.selectedLanguage.charAt(0).toUpperCase() + AppState.selectedLanguage.slice(1)} code generated successfully!`, 'success');
+        
+        // Switch to code view
+        const solidityViewButton = document.querySelector('.view-button[onclick*="solidity"]');
+        if (solidityViewButton) {
+          solidityViewButton.click();
+        }
+        
+        // Add message to chat history
+        addMessage('assistant', `
+          <div class="success-message">
+            <i class="fas fa-check-circle"></i>
+            <h3>Code Generation Complete</h3>
+            <p>I've generated the ${AppState.selectedLanguage} code based on your requirements. You can view it in the "Contract Preview" tab.</p>
+            <p>Would you like me to explain any part of the code or make any adjustments?</p>
+          </div>
+        `);
+        
+        // Add styles for success message if not already added
+        if (!document.getElementById('success-message-style')) {
+          const style = document.createElement('style');
+          style.id = 'success-message-style';
+          style.textContent = `
+            .success-message {
+              background-color: var(--success-light);
+              padding: 16px;
+              border-radius: 8px;
+              border-left: 4px solid var(--success-color);
+              margin-bottom: 16px;
+            }
+            
+            .success-message i {
+              color: var(--success-color);
+              font-size: 24px;
+              margin-bottom: 12px;
+            }
+            
+            .success-message h3 {
+              margin-top: 0;
+              margin-bottom: 8px;
+              color: var(--success-color);
+            }
+          `;
+          document.head.appendChild(style);
+        }
+      } else {
+        addNotification(`Error generating code: ${data.error}`, 'error');
+        
+        addMessage('assistant', `
+          <div class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <h3>Code Generation Failed</h3>
+            <p>I encountered an error while generating the code: ${data.error}</p>
+            <p>Would you like me to try again with a different approach?</p>
+          </div>
+        `);
+        
+        // Add styles for error message if not already added
+        if (!document.getElementById('error-message-style')) {
+          const style = document.createElement('style');
+          style.id = 'error-message-style';
+          style.textContent = `
+            .error-message {
+              background-color: var(--error-light);
+              padding: 16px;
+              border-radius: 8px;
+              border-left: 4px solid var(--error-color);
+              margin-bottom: 16px;
+            }
+            
+            .error-message i {
+              color: var(--error-color);
+              font-size: 24px;
+              margin-bottom: 12px;
+            }
+            
+            .error-message h3 {
+              margin-top: 0;
+              margin-bottom: 8px;
+              color: var(--error-color);
+            }
+          `;
+          document.head.appendChild(style);
+        }
+      }
+    }, 300);
+  })
+  .catch(error => {
+    // Remove overlay
+    if (genOverlay.parentNode) {
+      genOverlay.parentNode.removeChild(genOverlay);
+    }
+    
+    console.error("Error generating code:", error);
+    addNotification(`Error generating code: ${error.message}`, 'error');
+    
+    addMessage('assistant', `
+      <div class="error-message">
+        <i class="fas fa-exclamation-circle"></i>
+        <h3>Code Generation Failed</h3>
+        <p>I encountered an error while generating the code: ${error.message}</p>
+        <p>Would you like me to try again with a different approach?</p>
+      </div>
+    `);
+  });
+}
+
+/**
+ * Initialize the application
+ */
+window.onload = () => {
+  // Display elements
+  elements.generatorPanel.style.display = 'flex';
+  updateStepIndicator(1);
+  
+  // Add phase navigation
+  addPhaseNavigation();
+  
+  // Enhance contract preview
+  enhanceContractPreview();
+  
+  // Add welcome notification after a slight delay
+  setTimeout(() => {
+    addNotification(
+      'Welcome! I\'ll help you create a custom smart contract. Let\'s start by discussing what type of contract you need.', 
+      'info'
+    );
+  }, 500);
+  
+  // Show initial greeting in chat
+  setTimeout(() => {
+    addMessage('assistant', `
+      <div style="text-align: center;">
+        <i class="fas fa-robot" style="font-size: 2rem; color: var(--primary-color); margin-bottom: 16px;"></i>
+        <h3 style="margin: 0 0 8px 0;">Welcome to SmartContractHub</h3>
+        <p>I'm your AI assistant. I can help you create, audit, and optimize smart contracts.</p>
+        <p>Tell me what kind of contract you need, and we'll build it together!</p>
+      </div>
+    `);
+  }, 800);
+  
+  // Initialize any UI elements that need it
+  renderContractContent();
+};
 
 // Modify the AppState object to add a step transition method
 // Add this to the AppState definition

@@ -149,11 +149,55 @@ async function generateCode(req, res, next) {
   }
 }
 
-// Export the new function
+/**
+ * Handle phase transitions
+ */
+async function handlePhaseTransition(req, res, next) {
+  try {
+    const { targetPhase } = req.body;
+    
+    if (targetPhase === undefined) {
+      return res.status(400).json({ error: 'Missing targetPhase parameter' });
+    }
+    
+    // Process phase transition
+    const result = await contractService.handlePhaseTransition(
+      targetPhase,
+      memoryConversation,
+      memoryPhase,
+      selectedLanguage
+    );
+
+    // Update memory only if there was no error
+    if (!result.error) {
+      memoryConversation = result.conversation || memoryConversation;
+      memoryPhase = result.phase || memoryPhase;
+    }
+
+    // Return response data
+    const responseData = {
+      phase: memoryPhase,
+      message: result.message || "",
+      contract: result.contract || null,
+      error: result.error || null,
+      debug: { 
+        conversationLength: memoryConversation.length,
+        selectedLanguage: selectedLanguage
+      }
+    };
+    
+    return res.json(responseData);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Add to module.exports
 module.exports = {
   handleChat,
   healthCheck,
   getLanguage,
   setLanguage,
-  generateCode
+  generateCode,
+  handlePhaseTransition  // Add the new function
 };

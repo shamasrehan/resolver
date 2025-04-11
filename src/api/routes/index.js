@@ -16,6 +16,10 @@ router.get('/health', contractController.healthCheck);
 router.post('/language', contractController.setLanguage);
 router.get('/language', contractController.getLanguage);
 
+// Code generation endpoints
 router.post('/generate-code', contractController.generateCode);
+
+// Phase transition endpoint
+router.post('/phase-transition', contractController.handlePhaseTransition);
 
 module.exports = router;
