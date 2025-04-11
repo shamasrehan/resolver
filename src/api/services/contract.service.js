@@ -22,6 +22,9 @@ async function handleSmartContractAssistant(userInput, conversation = [], phase 
       return await handlePhase1(userInput, conversation, selectedLanguage);
     } else if (phase === 2) {
       return await handlePhase2(userInput, conversation, selectedLanguage);
+    } else if (phase === 3) {
+      // Handle Phase 3 interactions
+      return await handlePhase3(userInput, conversation, selectedLanguage);
     }
   } catch (error) {
     console.error("Error in handleSmartContractAssistant:", error);
@@ -33,6 +36,29 @@ async function handleSmartContractAssistant(userInput, conversation = [], phase 
   }
 }
 
+/**
+ * Handle Phase 3: Contract refinement after generation
+ */
+async function handlePhase3(userInput, conversation, selectedLanguage) {
+  // Check if it's a function call
+  if (userInput.startsWith("/")) {
+    return handleFunctionCall(userInput, conversation);
+  } else {
+    // Special handling for regeneration requests
+    const isRegenerationRequest = userInput.toLowerCase().match(/\b(regenerate|generate again|redo|remake|recreate)\b/);
+    
+    if (isRegenerationRequest) {
+      return await transitionToPhase3(conversation, selectedLanguage);
+    } else {
+      // Handle normal conversation in Phase 3
+      return handleDiscussion(userInput, conversation, selectedLanguage, true);
+    }
+  }
+}
+
+/**
+ * Handle Phase 1: Requirements gathering
+ */
 /**
  * Handle Phase 1: Requirements gathering
  */
@@ -59,27 +85,68 @@ async function handlePhase1(userInput, conversation, selectedLanguage) {
                          (userConfirms && result.message.includes("summary") && conversation.length > 6);
 
     if (readyForPhase2) {
-      // Transition to Phase 2
       try {
+        // Add more detailed logging for the transition to Phase 2
+        console.log("Transitioning to Phase 2 - Generating smart contract...");
+        
+        // Show a transition message to the user during generation
+        const transitionMessage = {
+          phase: 1,
+          conversation: [
+            ...result.conversation,
+            { 
+              role: "assistant", 
+              content: "I'm now generating your smart contract based on these requirements. This may take a moment..." 
+            }
+          ],
+          message: "I'm now generating your smart contract based on these requirements. This may take a moment..."
+        };
+        
+        // Attempt to generate the contract
         const contract = await generateSmartContract(result.conversation, selectedLanguage);
         
-        return {
-          phase: 2,
-          conversation: result.conversation,
-          contract,
-          message: contract.error 
-            ? `I encountered an issue generating the contract: ${contract.error}. Would you like to provide additional details or try again?`
-            : "Smart contract has been generated based on your requirements. You can view it in the Contract Preview tab."
-        };
+        if (contract.error) {
+          console.error("Error during contract generation:", contract.error);
+          
+          // If contract generation failed, stay in Phase 1 and report the error
+          return {
+            phase: 1,
+            conversation: [
+              ...result.conversation,
+              { 
+                role: "assistant", 
+                content: `I encountered an issue generating the contract: ${contract.error}. Let's try a different approach. Could you provide a bit more detail about the contract functionality you need?` 
+              }
+            ],
+            message: `I encountered an issue generating the contract: ${contract.error}. Let's try a different approach. Could you provide a bit more detail about the contract functionality you need?`
+          };
+        } else {
+          // Successful transition to Phase 2
+          return {
+            phase: 2,
+            conversation: result.conversation,
+            contract,
+            message: "Smart contract has been generated based on your requirements. You can view it in the Contract Preview tab."
+          };
+        }
       } catch (error) {
         console.error("Error transitioning to Phase 2:", error);
+        
+        // If there's an exception, stay in Phase 1 with an error message
         return {
           phase: 1,
-          conversation: result.conversation,
-          message: "I encountered an issue while generating your contract. Could you provide more details about what you're looking for?"
+          conversation: [
+            ...result.conversation,
+            { 
+              role: "assistant", 
+              content: "I encountered an unexpected error while generating your contract. Could you provide more details about what you're looking for?" 
+            }
+          ],
+          message: "I encountered an unexpected error while generating your contract. Could you provide more details about what you're looking for?"
         };
       }
     } else {
+      // Continue in Phase 1
       return {
         phase: 1,
         conversation: result.conversation,
@@ -193,6 +260,9 @@ async function continuePhase1(conversation, userMessage, selectedLanguage) {
 /**
  * Generate smart contract based on requirements summary
  */
+/**
+ * Generate smart contract based on requirements summary
+ */
 async function generateSmartContract(conversation, selectedLanguage) {
   try {
     // Summarize the Phase 1 conversation
@@ -214,14 +284,75 @@ async function generateSmartContract(conversation, selectedLanguage) {
     ];
 
     try {
-      const response = await openaiService.createChatCompletion(phase2Messages, 'phase2', true);
+      // Add additional logging to diagnose API issues
+      console.log(`Calling OpenAI API for contract generation (language: ${selectedLanguage})`);
+      
+      // Add timeout and retry mechanism for more reliability
+      let attempts = 0;
+      const maxAttempts = 3;
+      let response;
+      
+      while (attempts < maxAttempts) {
+        try {
+          response = await openaiService.createChatCompletion(phase2Messages, 'phase2', true);
+          break; // Success, exit the retry loop
+        } catch (apiError) {
+          attempts++;
+          console.error(`API attempt ${attempts} failed:`, apiError.message);
+          
+          if (attempts >= maxAttempts) {
+            throw apiError; // Rethrow after max attempts
+          }
+          
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempts)));
+        }
+      }
+      
+      if (!response) {
+        throw new Error("Failed to get response from API after multiple attempts");
+      }
+      
       const rawContent = response.choices[0].message.content;
+      console.log("API response received, content length:", rawContent.length);
 
       // Attempt to parse JSON output
       try {
-        const parsedJson = JSON.parse(rawContent);
+        // Add more robust JSON parsing
+        let parsedJson;
+        try {
+          parsedJson = JSON.parse(rawContent);
+        } catch (initialJsonError) {
+          console.error("Initial JSON parse error:", initialJsonError);
+          
+          // Try to extract JSON if it's embedded in other text
+          const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              parsedJson = JSON.parse(jsonMatch[0]);
+              console.log("Successfully extracted JSON from response");
+            } catch (extractionError) {
+              console.error("JSON extraction failed:", extractionError);
+              throw initialJsonError; // Rethrow the original error if extraction fails
+            }
+          } else {
+            throw initialJsonError; // Rethrow the original error if no JSON pattern found
+          }
+        }
+        
+        // Validate the parsed JSON has minimal required fields
+        if (!parsedJson || typeof parsedJson !== 'object') {
+          throw new Error("Parsed JSON is not an object");
+        }
+        
+        if (!parsedJson.contractName) {
+          // Add contractName if missing
+          parsedJson.contractName = "SmartContract";
+          console.log("Added missing contractName to JSON");
+        }
         
         // Generate sample contract code based on the JSON
+        console.log("Generating contract code from JSON spec");
         const contractCode = await codeGenerator.generateContractCode(parsedJson, selectedLanguage);
         
         // Return both the JSON spec and generated code
@@ -257,20 +388,68 @@ async function generateSmartContract(conversation, selectedLanguage) {
           };
         }
         
-        return { 
-          error: "Failed to parse as JSON", 
-          rawContent,
-          errorDetails: jsonError.message
+        // If all parsing attempts fail, generate a fallback contract
+        console.log("Generating fallback contract due to JSON parsing failure");
+        const fallbackJson = createFallbackContractJson(requirementsSummary, selectedLanguage);
+        const fallbackCode = await codeGenerator.generateContractCode(fallbackJson, selectedLanguage);
+        
+        return {
+          jsonSpec: fallbackJson,
+          contracts: [
+            {
+              name: fallbackJson.contractName || "SmartContract",
+              content: fallbackCode
+            }
+          ],
+          warning: "Used fallback contract due to parsing issues - please review carefully."
         };
       }
     } catch (openaiError) {
       console.error("OpenAI API error in Phase 2 generation:", openaiError);
-      return { error: "Error communicating with AI service. Please try again." };
+      throw new Error("Error communicating with AI service. Please try again.");
     }
   } catch (error) {
     console.error("Error in Phase 2 generation:", error);
-    return { error: "Error generating the smart contract." };
+    return { error: error.message || "Error generating the smart contract." };
   }
+}
+
+/**
+ * Create a fallback contract JSON if all other methods fail
+ */
+function createFallbackContractJson(requirementsSummary, selectedLanguage) {
+  // Extract the contract name from the requirements if possible
+  let contractName = "SmartContract";
+  const nameMatch = requirementsSummary.match(/contract\s+name:?\s*["']?([A-Za-z0-9]+)["']?/i);
+  if (nameMatch && nameMatch[1]) {
+    contractName = nameMatch[1];
+  }
+  
+  // Create a minimal valid JSON spec
+  return {
+    contractName: contractName,
+    license: "MIT",
+    solidity: "0.8.20",
+    vyper: "0.3.9",
+    rust: "1.70.0",
+    stateVariables: [],
+    functions: [
+      {
+        name: "example",
+        visibility: "public",
+        mutability: "view",
+        returns: {
+          type: "string"
+        },
+        body: "return \"This is a fallback contract. Please regenerate.\";"
+      }
+    ],
+    natspec: {
+      title: `${contractName}`,
+      notice: "This is a fallback contract generated due to an error in processing requirements.",
+      dev: `Requirements summary: ${requirementsSummary.substring(0, 100)}...`
+    }
+  };
 }
 
 /**
@@ -314,8 +493,118 @@ async function handlePhase2(userInput, conversation, selectedLanguage) {
   if (userInput.startsWith("/")) {
     return handleFunctionCall(userInput, conversation);
   } else {
-    // Normal message in Phase 2 - Use GPT to refine or discuss
-    return handleDiscussion(userInput, conversation, selectedLanguage);
+    // Check if the user is confirming the requirements
+    const isConfirmation = userInput.toLowerCase().match(/\b(yes|confirm|agree|ok|proceed|generate|looks good|that's correct|i confirm|approved)\b/);
+    
+    if (isConfirmation && conversation.length > 0) {
+      // User confirmed requirements, trigger phase 3
+      return await transitionToPhase3(conversation, selectedLanguage);
+    } else {
+      // Normal message in Phase 2 - Use GPT to refine or discuss
+      return handleDiscussion(userInput, conversation, selectedLanguage);
+    }
+  }
+}
+
+/**
+ * Transition to Phase 3: Generate final contract code
+ */
+async function transitionToPhase3(conversation, selectedLanguage) {
+  try {
+    // Generate or retrieve the contract JSON spec from phase 2
+    let contractSpec;
+    
+    // Look for the latest contract specification in the conversation
+    for (let i = conversation.length - 1; i >= 0; i--) {
+      const message = conversation[i];
+      if (message.role === "assistant" && message.content.includes("contract has been generated")) {
+        // We've found a reference to the generated contract
+        contractSpec = await summarizeRequirements(conversation, selectedLanguage);
+        break;
+      }
+    }
+    
+    if (!contractSpec) {
+      // If we can't find a reference, regenerate the spec
+      contractSpec = await summarizeRequirements(conversation, selectedLanguage);
+    }
+    
+    // Generate the contract code
+    const contractJson = await generateFinalContractSpec(contractSpec, selectedLanguage);
+    const contractCode = await codeGenerator.generateContractCode(contractJson, selectedLanguage);
+    
+    return {
+      phase: 3,
+      conversation: [
+        ...conversation,
+        { role: "user", content: "Please generate the final contract code." },
+        { 
+          role: "assistant", 
+          content: "I've generated the final contract code based on your requirements. You can view it in the Contract Preview tab and make any necessary adjustments."
+        }
+      ],
+      contract: {
+        jsonSpec: contractJson,
+        contracts: [
+          {
+            name: contractJson.contractName || "SmartContract",
+            content: contractCode
+          }
+        ]
+      },
+      message: "I've generated the final contract code based on your requirements. You can view it in the Contract Preview tab and make any necessary adjustments."
+    };
+  } catch (error) {
+    console.error("Error in Phase 3 transition:", error);
+    return {
+      phase: 2,
+      conversation: [
+        ...conversation,
+        { role: "user", content: "Please generate the final contract code." }
+      ],
+      message: "I encountered an issue while generating the final contract code. Could you provide more details or try again?"
+    };
+  }
+}
+
+/**
+ * Generate the final contract specification
+ */
+async function generateFinalContractSpec(requirementsSummary, selectedLanguage) {
+  try {
+    const phase3Messages = [
+      { 
+        role: "system", 
+        content: promptUtils.compilePrompt('phase2.system', { 
+          language: selectedLanguage
+        }) 
+      },
+      {
+        role: "user",
+        content: `Generate the final contract specification using this summary:\n\n${requirementsSummary}`
+      }
+    ];
+
+    const response = await openaiService.createChatCompletion(phase3Messages, 'phase2', true);
+    const rawContent = response.choices[0].message.content;
+
+    try {
+      return JSON.parse(rawContent);
+    } catch (jsonError) {
+      console.error("JSON parse error in final spec:", jsonError);
+      
+      // Try to repair the JSON if possible
+      const repairedJson = promptUtils.attemptJsonRepair(rawContent);
+      if (repairedJson) {
+        console.log("Successfully repaired JSON in final spec");
+        return repairedJson;
+      }
+      
+      throw new Error("Failed to parse contract specification JSON");
+    }
+  } catch (error) {
+    console.error("Error generating final contract spec:", error);
+    throw error;
   }
 }
 
@@ -378,13 +667,19 @@ async function handleFunctionCall(userInput, conversation) {
 /**
  * Handle discussion in Phase 2
  */
-async function handleDiscussion(userInput, conversation, selectedLanguage) {
+/**
+ * Handle discussion in Phase 2 or 3
+ */
+async function handleDiscussion(userInput, conversation, selectedLanguage, isPhase3 = false) {
   try {
-    // Create a system message to explain Phase 2 context
-    const phase2SystemMessage = {
+    // Create a system message to explain context
+    const phaseContext = isPhase3 ? 
+      `You are an expert ${selectedLanguage} developer assisting with a smart contract that has been fully generated and is now being refined. The user may want to make specific adjustments to the code, ask for explanations, or request optimizations.` :
+      `You are an expert ${selectedLanguage} developer assisting with a smart contract that has already been generated. The user wants to discuss, refine, or ask questions about the contract.`;
+    
+    const systemMessage = {
       role: "system",
-      content: `You are an expert ${selectedLanguage} developer assisting with a smart contract that has already been generated. 
-The user wants to discuss, refine, or ask questions about the contract. 
+      content: `${phaseContext} 
 Focus on providing helpful information about the contract, explaining functionality, or suggesting improvements.
 If the user wants significant changes, guide them on how to articulate those changes clearly.`
     };
@@ -392,7 +687,7 @@ If the user wants significant changes, guide them on how to articulate those cha
     // Add the system message at the start of the conversation for this specific message
     // but don't persist it in the stored conversation
     const refinementConversation = [
-      phase2SystemMessage,
+      systemMessage,
       ...conversation,
       { role: "user", content: userInput }
     ];
@@ -402,7 +697,7 @@ If the user wants significant changes, guide them on how to articulate those cha
     const assistantMessage = response.choices[0].message.content;
     
     return {
-      phase: 2,
+      phase: isPhase3 ? 3 : 2,
       conversation: [
         ...conversation,
         { role: "user", content: userInput },
@@ -411,9 +706,9 @@ If the user wants significant changes, guide them on how to articulate those cha
       message: assistantMessage
     };
   } catch (error) {
-    console.error("Error in Phase 2 discussion:", error);
+    console.error(`Error in Phase ${isPhase3 ? '3' : '2'} discussion:`, error);
     return {
-      phase: 2,
+      phase: isPhase3 ? 3 : 2,
       conversation: [
         ...conversation,
         { role: "user", content: userInput }
@@ -422,7 +717,20 @@ If the user wants significant changes, guide them on how to articulate those cha
     };
   }
 }
+/**
+ * Generate code from a JSON specification
+ */
+async function generateCodeFromSpec(jsonSpec, language) {
+  try {
+    return await codeGenerator.generateContractCode(jsonSpec, language);
+  } catch (error) {
+    console.error("Error generating code from spec:", error);
+    throw new Error(`Failed to generate ${language} code: ${error.message}`);
+  }
+}
 
+// Add to module.exports
 module.exports = {
-  handleSmartContractAssistant
+  handleSmartContractAssistant,
+  generateCodeFromSpec
 };

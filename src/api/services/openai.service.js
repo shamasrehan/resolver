@@ -21,6 +21,14 @@ try {
  * @param {boolean} jsonResponse - Whether to request JSON response
  * @returns {Object} OpenAI API response
  */
+/**
+ * Create a chat completion with the OpenAI API
+ * 
+ * @param {Array} messages - Array of message objects
+ * @param {string} phase - Current phase (phase1, phase2, summary, discussion)
+ * @param {boolean} jsonResponse - Whether to request JSON response
+ * @returns {Object} OpenAI API response
+ */
 async function createChatCompletion(messages, phase = 'phase1', jsonResponse = false) {
   // Set parameters based on phase
   const temperature = config.openai.temperature[phase] || 0.7;
@@ -42,6 +50,9 @@ async function createChatCompletion(messages, phase = 'phase1', jsonResponse = f
   }
   
   try {
+    // Add detailed logging for API calls
+    console.log(`OpenAI API request: model=${params.model}, phase=${phase}, messages=${messages.length}, json=${jsonResponse}`);
+    
     // Set timeout for the request
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Request timed out')), config.openai.timeout);
@@ -51,8 +62,22 @@ async function createChatCompletion(messages, phase = 'phase1', jsonResponse = f
     const apiPromise = openai.chat.completions.create(params);
     
     // Race the API request against the timeout
-    return await Promise.race([apiPromise, timeoutPromise]);
+    const response = await Promise.race([apiPromise, timeoutPromise]);
+    
+    // Log successful response
+    console.log(`OpenAI API response: status=success, length=${response.choices[0].message.content.length}`);
+    
+    return response;
   } catch (error) {
+    // Log detailed error information
+    console.error(`OpenAI API error in phase ${phase}:`, {
+      message: error.message,
+      code: error.code,
+      type: error.type,
+      param: error.param,
+      statusCode: error.status || error.statusCode
+    });
+    
     // Enhance error with additional context
     const enhancedError = new Error(`OpenAI API error: ${error.message}`);
     enhancedError.originalError = error;
@@ -61,7 +86,8 @@ async function createChatCompletion(messages, phase = 'phase1', jsonResponse = f
       model: params.model,
       messageCount: messages.length,
       temperature,
-      maxTokens
+      maxTokens,
+      jsonResponse
     };
     
     throw enhancedError;

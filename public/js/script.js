@@ -2290,7 +2290,7 @@ function addContractToMyContracts(name, description) {
   }, 50);
 }
 
-/* --- STEP INDICATOR FUNCTIONS --- */
+/* --- STEP INDICATOR with visual feedback --- */
 function updateStepIndicator(step) {
   console.log("Current Step =>", step);
   
@@ -2353,9 +2353,22 @@ function updateUIForCurrentStep(step) {
       break;
       
     case 3:
-      // Phase 3: Develop - Generate contract code
+      // Phase 3: Develop - Generated contract code
       document.querySelector('.approval-buttons').style.opacity = '1';
-      elements.messageInput.placeholder = "Ask questions about the generated contract...";
+      elements.messageInput.placeholder = "Ask questions about the generated contract or request specific changes...";
+      
+      // Make sure Generate Code button is prominently displayed
+      const generateBtn = document.querySelector('.generate-btn');
+      if (generateBtn) {
+        generateBtn.style.transform = 'scale(1.05)';
+        generateBtn.style.boxShadow = 'var(--shadow-lg)';
+        
+        // Return to normal after a delay
+        setTimeout(() => {
+          generateBtn.style.transform = '';
+          generateBtn.style.boxShadow = '';
+        }, 2000);
+      }
       break;
   }
 }
@@ -2390,49 +2403,12 @@ function showStepNotification(step) {
       const developNote = document.createElement('div');
       developNote.className = 'chat-notification success step-notification'; 
       developNote.innerHTML = `
-        <strong>Phase 3: Generating Smart Contract</strong>
+        <strong>Phase 3: Working with Generated Contract</strong>
         <p style="margin-top: 8px; font-size: 0.9em;">
-          Your requirements have been confirmed! Now generating the smart contract code.
+          Your smart contract has been generated! You can now review the code, ask questions about it, or request specific changes.
         </p>
       `;
       elements.chatNotifications.appendChild(developNote);
-      
-      // Add "in progress" animation for code generation
-      addMessage('assistant', `
-        <div style="text-align: center; padding: 20px;">
-          <div class="code-generation-indicator">
-            <div class="code-gen-spinner"></div>
-            <p>Generating smart contract...</p>
-          </div>
-        </div>
-      `);
-      
-      // Add styles for the animation if not already added
-      if (!document.getElementById('code-gen-style')) {
-        const style = document.createElement('style');
-        style.id = 'code-gen-style';
-        style.textContent = `
-          .code-generation-indicator {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            background-color: rgba(63, 81, 181, 0.05);
-            border-radius: 8px;
-          }
-          
-          .code-gen-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(63, 81, 181, 0.3);
-            border-radius: 50%;
-            border-top-color: var(--primary-color);
-            animation: spin 1s infinite linear;
-            margin-bottom: 16px;
-          }
-        `;
-        document.head.appendChild(style);
-      }
       break;
   }
 }
@@ -2502,6 +2478,91 @@ function addNotification(message, type = 'info', className = '') {
   }
   
   return notificationId;
+}
+
+function generateCodeFromSpec() {
+  if (!AppState.currentContract || !AppState.currentContract.jsonSpec) {
+    addNotification('No contract specification to generate code from', 'warning');
+    return;
+  }
+  
+  // Show generation in progress
+  addNotification('Generating contract code...', 'info');
+  
+  // Add generation animation
+  const genOverlay = document.createElement('div');
+  genOverlay.className = 'generate-overlay';
+  genOverlay.innerHTML = `
+    <div class="generate-animation">
+      <i class="fas fa-code"></i>
+    </div>
+    <p>Generating code...</p>
+  `;
+  
+  elements.finalContractDiv.parentNode.appendChild(genOverlay);
+  
+  // Make API call to generate code
+  fetch("/api/generate-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonSpec: AppState.currentContract.jsonSpec,
+      language: AppState.selectedLanguage
+    }),
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
+  })
+  .then(data => {
+    // Remove overlay
+    genOverlay.style.opacity = '0';
+    genOverlay.style.transition = 'opacity 0.3s ease';
+    
+    setTimeout(() => {
+      if (genOverlay.parentNode) {
+        genOverlay.parentNode.removeChild(genOverlay);
+      }
+      
+      if (data.status === 'success') {
+        // Update contract code
+        if (AppState.currentContract.contracts && AppState.currentContract.contracts.length > 0) {
+          AppState.currentContract.contracts[0].content = data.code;
+        } else {
+          AppState.currentContract.contracts = [
+            {
+              name: AppState.currentContract.jsonSpec.contractName || "SmartContract",
+              content: data.code
+            }
+          ];
+        }
+        
+        // Render updated contract
+        renderContractContent();
+        
+        addNotification('Contract code generated successfully!', 'success');
+        
+        // Switch to code view
+        const solidityViewButton = document.querySelector('.view-button[onclick*="solidity"]');
+        if (solidityViewButton) {
+          solidityViewButton.click();
+        }
+      } else {
+        addNotification(`Error generating code: ${data.error}`, 'error');
+      }
+    }, 300);
+  })
+  .catch(error => {
+    // Remove overlay
+    if (genOverlay.parentNode) {
+      genOverlay.parentNode.removeChild(genOverlay);
+    }
+    
+    console.error("Error generating code:", error);
+    addNotification(`Error generating code: ${error.message}`, 'error');
+  });
 }
 
 // Modify the AppState object to add a step transition method

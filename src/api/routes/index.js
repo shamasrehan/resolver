@@ -16,4 +16,6 @@ router.get('/health', contractController.healthCheck);
 router.post('/language', contractController.setLanguage);
 router.get('/language', contractController.getLanguage);
 
+router.post('/generate-code', contractController.generateCode);
+
 module.exports = router;

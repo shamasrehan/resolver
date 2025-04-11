@@ -123,9 +123,37 @@ function setContractLanguageInternal(language) {
   return false;
 }
 
+/**
+ * Generate code from JSON specification
+ */
+async function generateCode(req, res, next) {
+  try {
+    const { jsonSpec, language } = req.body;
+    
+    if (!jsonSpec) {
+      return res.status(400).json({ error: 'Missing JSON specification' });
+    }
+    
+    const targetLanguage = language || selectedLanguage;
+    
+    // Generate code using the appropriate generator
+    const code = await contractService.generateCodeFromSpec(jsonSpec, targetLanguage);
+    
+    return res.json({ 
+      status: 'success', 
+      language: targetLanguage,
+      code
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Export the new function
 module.exports = {
   handleChat,
   healthCheck,
   getLanguage,
-  setLanguage
+  setLanguage,
+  generateCode
 };

@@ -18,18 +18,23 @@ const config = {
   defaultModel: 'gpt-4',
   
   // OpenAI API config
+  // OpenAI API config
   openai: {
-    timeout: 30000, // 30 seconds
+    timeout: 60000, // Increase to 60 seconds for longer API calls
     temperature: {
       phase1: 0.7,
-      phase2: 0.3,
-      summary: 0.3
+      phase2: 0.3, // Lower temperature for more deterministic JSON outputs
+      summary: 0.3,
+      discussion: 0.7
     },
     maxTokens: {
-      phase1: 500,
-      phase2: 2000,
-      summary: 2000
-    }
+      phase1: 1000,  // Increase token limits
+      phase2: 4000,  // Increase significantly for complex contract generation
+      summary: 2000,
+      discussion: 1000
+    },
+    retryAttempts: 3,
+    retryDelay: 2000 // Base delay before retrying (will be multiplied by attempt number)
   },
   
   // Contract languages
